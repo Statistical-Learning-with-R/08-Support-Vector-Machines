@@ -1,0 +1,189 @@
+---
+title: "Support Vector Machines"
+author: "YOUR NAME HERE"
+format: 
+  html:
+    code-fold: true
+    code-line-numbers: true
+    code-tools: true
+    self-contained: true
+editor: visual
+execute:
+  message: false
+---
+
+```{r, eval = TRUE, version = "none"}
+templar::versions_quarto_multilingual(global_eval = FALSE, to_jupyter = TRUE, warn_edit = FALSE)
+```
+
+## Setup
+
+Declare your libraries:
+
+```{r, version = "R"}
+#| label: libraries-r
+#| include: false
+library(tidyverse)
+library(tidymodels)
+library(glmnet)
+library(discrim)
+library(rpart)
+library(rpart.plot)
+library(baguette)
+```
+
+```{python, version = "python"}
+#| label: libraries-py
+#| include: false
+import pandas as pd
+import numpy as np
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+
+from sklearn.linear_model import LinearRegression, LogisticRegression, Lasso, Ridge, ElasticNet
+from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
+
+from sklearn.metrics import r2_score, confusion_matrix, accuracy_score, precision_score, recall_score, roc_auc_score, make_scorer
+
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
+from sklearn.compose import make_column_transformer
+from sklearn.pipeline import Pipeline, make_pipeline
+
+from sklearn.model_selection import cross_val_score, GridSearchCV, KFold
+
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+
+from sklearn.ensemble import BaggingClassifier, RandomForestClassifier
+
+from itertools import combinations
+
+import statsmodels.api as sm
+
+from sklearn.decomposition import PCA
+
+from sklearn.cluster import KMeans, AgglomerativeClustering
+from scipy.cluster.hierarchy import dendrogram, linkage
+
+from sklearn.svm import SVC 
+
+```
+
+## Data Prep
+
+```{r, version = "R"}
+# Read data
+fed <- read.csv("https://www.dropbox.com/s/9t8sxr1sg0monih/federalist.txt?dl=1")
+fed <- fed[,-1]
+
+# Data from papers with known authors
+fed_known <- fed %>%
+  filter(Author != "DIS")
+
+# Data from papers with unknown authors
+fed_unknown <- fed %>%
+  filter(Author == "DIS")
+
+```
+
+```{python, version = "python"}
+# Read data
+fed = pd.read_csv("https://www.dropbox.com/s/9t8sxr1sg0monih/federalist.txt?dl=1")
+fed = fed.drop("Unnamed: 0", axis = 1)
+
+# Data from papers with known authors
+is_known = fed['Author'] != "DIS"
+fed_known = fed[is_known]
+
+# Data from papers with unknown authors
+not_known = fed['Author'] == "DIS"
+fed_unknown = fed[not_known]
+```
+
+## PCA projected dataset prep
+
+```{r, version = "R"}
+
+fed_matrix <- fed_known %>% 
+  select(-Author) %>% 
+  as.matrix()
+
+pc <- prcomp(fed_matrix, center = TRUE, scale = TRUE)
+
+fed_pca_df <- pc$x %>%
+  as.data.frame() %>%
+  mutate(
+    Author = fed_known$Author
+  )
+
+fed_pca_df_unknown <- fed_unknown %>%
+  select(-Author) %>%
+  as.matrix() %>%
+  scale() %>% 
+  replace_na(0) %*% 
+  pc$rotation %>%
+  as_tibble() %>%
+  mutate(
+    Author = "Unknown"
+  )
+
+fed_pca_df %>%
+  ggplot(aes(x = PC1, y = PC2, color = Author)) +
+  geom_point()
+```
+
+
+
+```{python, version = "python"}
+
+fed_matrix = fed_known.drop('Author', axis = 1)
+
+pipeline = make_pipeline(
+  StandardScaler(),
+  PCA()
+)
+
+pipeline.fit(fed_matrix)
+
+fed_pca_df = pipeline.transform(fed_matrix)
+fed_pca_df = pd.DataFrame(fed_pca_df)
+
+# make column names be strings instead of weird integers
+fed_pca_df.columns = fed_pca_df.columns.map(str)
+
+fed_pca_df["Author"] = fed_known["Author"]
+
+
+# compute PC dims on unknown data
+fed_matrix_uk = fed_unknown.drop('Author', axis = 1)
+
+fed_pca_df_unknown = pipeline.transform(fed_matrix_uk)
+fed_pca_df_unknown = pd.DataFrame(fed_pca_df_unknown)
+```
+
+
+
+## Try it!
+
+#### Fit a support vector classifier, tuning the **cost** parameter
+#### Use it to predict the unknown authors
+
+
+```{r, version = "R"}
+svm_spec <- svm_poly(cost = 2, degree = 1) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
+```
+
+```{python, version = "python"}
+svm_spec = SVC(kernel='poly', degree=1, C = 2)
+```
+
+#### Fit a support vector **machine**, tuning the **cost** parameter AND the **degree** parameter.
+#### Use it to predict the unknown authors
+
+

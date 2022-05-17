@@ -1,5 +1,5 @@
 ---
-title: "Classification with Support Vector Machines"
+title: "Regression with Splines"
 resource_files:
 - appforthat.jpg
 output:
@@ -56,282 +56,223 @@ style_mono_light(
 ---
 class: center, middle
 
-# Maximal Margin Classifier
+# Splines and Knots
 
 ---
-# Maximal Margin
+## Motivation
 
-Let's revisit the Federalist papers data.
-
-Recall that we plotted the essays in the first two PC dimensions, and saw that these separated the authors reasonably well:
-
-```{r, echo = FALSE}
-# Read data
-fed <- read.csv("https://www.dropbox.com/s/9t8sxr1sg0monih/federalist.txt?dl=1")
-fed <- fed[,-1]
-
-# Keep numeric section only
-fed_all <- as.matrix(fed[,-1])
-fed_all <- apply(fed_all, 2, as.numeric)
-
-auths <- fed$Author
-
-# Data from papers with known authors
-fed_known <- as.matrix(fed[auths != 'DIS',-1])
-fed_known <- apply(fed_known, 2, as.numeric)
-
-auths_known = auths[auths != 'DIS']
-
-# Data from papers with unknown authors
-fed_unknown <- as.matrix(fed[auths == 'DIS',-1])
-fed_unknown <- apply(fed_unknown, 2, as.numeric)
-
-fed_ex <- as_tibble(fed_known) %>% cbind(auths_known)
-
-fed_matrix <- fed_ex %>% select(-auths_known) %>% as.matrix()
-pc <- prcomp(fed_matrix, center = TRUE, scale = TRUE)
-
-fed_pca_df <- pc$x %>%
-  as.data.frame() %>%
-  mutate(
-    author = auths_known
-  )
-
-fed_pca_df_uk <- scale(fed_unknown) %>% 
-  replace_na(0) %*% 
-  pc$rotation %>%
-  as_tibble() %>%
-  mutate(
-    author = "Unknown"
-  )
-
-fed_pca_df %>%
-  ggplot(aes(x = PC1, y = PC2, color = auths_known)) +
-  geom_point()
-```
-
----
-## Maximal Margin
-
-Suppose we are interested in classifying a new observation as "John Jay" or "Not John Jay".
+A **linear regression** is a very *simplistic* equation to fit to data.
 
 --
 
-There are many lines we could draw that split the *training* data perfectly between JJ and not JJ
-
----
-
-
-```{r}
-fed_pca_df %>%
-  ggplot(aes(x = PC1, y = PC2, color = author)) +
-  geom_point() +
-  geom_abline(slope = 5, intercept = 25) + 
-  geom_abline(slope = 6, intercept = 30) +
-  geom_abline(slope = 5, intercept = 22) 
-```
-
----
-## Maximal Margin
-
-The "best" one is the one that is furthest from the nearest observation on either side.
+$$y = b_1 x_1 + b_2 x_2 + ... + \epsilon$$
 
 --
 
-```{r}
-fed_pca_df %>%
-  ggplot(aes(x = PC1, y = PC2, color = author)) +
-  geom_point() +
-  geom_abline(slope = 5, intercept = 23.25) +
-  geom_abline(slope = 5, intercept = 20, lty = 2) +
-  geom_abline(slope = 5, intercept = 26.5, lty = 2)
-```
-
----
-## Maximal Margin
-
-Let's check out where the essays with **unknown authorship** fall on this plot:
-
----
-
-```{r}
-fed_pca_all  <- bind_rows(fed_pca_df, fed_pca_df_uk)
-
-fed_pca_all %>%
-  ggplot(aes(x = PC1, y = PC2, color = author)) +
-  geom_point() +
-  geom_abline(slope = 5, intercept = 23.25) +
-  geom_abline(slope = 5, intercept = 20, lty = 2) +
-  geom_abline(slope = 5, intercept = 26.5, lty = 2)
-```
-
-
----
-## Maximal Margin
-
-Okay, so **what's the problem?**
+What if we let it be more flexible:
 
 --
 
-In **real situation** we rarely have observations that *perfectly* fall on either side of a line/plane.
+$$y = b_1 f(x_1) + \epsilon$$
+---
+## Motivation
+
+But how to choose the function **f** that the predictors get put through?
 
 --
 
-Adding **one more observation** could *totally change* our classification line!
+We have already seen some choices!
 
 --
 
-None of the unknown essays are John Jay.
-
-Suppose we wanted instead to separate "Hamilton" from "Not Hamilton"
-
----
-
-```{r}
-fed_pca_df %>%
-  ggplot(aes(x = PC1, y = PC2, color = author)) +
-  geom_point() +
-  geom_abline(slope = 2, intercept = 2) 
-```
-
----
-## Soft Margin
-
-A **soft margin** is a margin with only a certain number of misclassified points.
+**Polynomial** regression
 
 --
 
-There are two decisions to make here:
+**transformations** of data (e.g. `log`)
+
+---
+## Piecewise regression
+
+What if we let our function **depend on the value of x**?
 
 --
 
-1. How big is our margin?  
+$f(x) =  $
 
-(`M` = width of margin)
-
---
-
-2. How many misclassified observations are we willing to have?  
-
-(`C` = cost of a misclassified point)
-
----
-
-Width of margin: 2
-Misclassified points in margin: 3
-
-```{r}
-fed_pca_df %>%
-  ggplot(aes(x = PC1, y = PC2, color = author)) +
-  geom_point() +
-  geom_abline(slope = 2, intercept = 2) +
-  geom_abline(slope = 2, intercept = 0, lty = 2) +
-  geom_abline(slope = 2, intercept = 4, lty = 2)
-```
-
----
-## Support Vector Classifier
-
-The **support vector** is the set of all observations that falling within the **soft margin** that are **misclassified**.
+* $f_1(x)$ if $x < c_1$
+* $f_2(x)$ if $c_1 < x < c_2$
+* ... etc
 
 --
 
-A **support vector classifier** tries to find:
+$c_1$, $c_2$, etc are cutoffs.  We call these **knots**
+
+---
+
+![](PiecewiseCubicFit2.png)
+
+---
+## Piecewise regression
+
+What questions should we ask?
 
 --
 
-a *line/plane* that will be used to classify future observations ...
+What **function** do we use at each range?
+
 
 --
 
-... that give us the biggest *margin width*...
+Where do we put the **knots**?
 
 --
 
-... while still respecting the cost, `C`.
+What can go wrong?
 
 ---
-## Support Vector Classifier
+## Choosing the function
 
-```{r, echo = TRUE}
-svm_spec <- svm_poly(cost = 2, degree = 1) %>%
-  set_mode("classification") %>%
-  set_engine("kernlab")
-
-fed_recipe <- recipe(author ~ PC1 + PC2, data = fed_pca_df)
-
-fed_wflow <- workflow() %>%
-  add_model(svm_spec) %>%
-  add_recipe(fed_recipe)
-
-my_svm <- fed_wflow %>%
-  fit(fed_pca_df)
-```
-
----
-
-```{r, echo = TRUE}
-fit <- my_svm %>% pull_workflow_fit()
-fit
-```
-
-
----
-## Support Vector Classifier
-
-```{r, echo = TRUE}
-predict(my_svm, fed_pca_df_uk)
-```
-
----
-```{r}
-fed_pca_all %>%
-  mutate(
-    preds = predict(my_svm, fed_pca_all)$.pred_class
-  ) %>%
-  ggplot(aes(x = PC1, y = PC2, color = preds, pch = author)) +
-  geom_point()
-
-
-```
-
----
-## Kernels
-
-What if we simply couldn't separate our data with a line/plane?
+Generally, we choose the **type of function**.
 
 --
 
-![](svm.png)
-
----
-
-## Kernels
-
-What if we imagine our points exist in **three dimensions**?
+e.g. linear, quadratic, cubic, ...
 
 --
 
-![](https://codingmachinelearning.files.wordpress.com/2016/08/capture2.jpg?w=352&h=250)
-
----
-
-## Support Vector Machine
-
-A **support vector machine** classifies observations using dividers in **extra dimensions**!
+Then, we use the **best fit** for **each range**
 
 --
 
-In this class, we will only implement **polynomial** svms.
+$f(x) =  $
+
+* $5x + 2x^2$ if $x < c_1$
+* $-2x + 7x^2$ if $c_1 < x < c_2$
+* ... etc
+
 
 ---
-class: center, middle, inverse
+## Where to put the knots?
+
+It's good to have **more knots** when you want **more flexibility**.
+
+--
+
+Often, we space them **uniformly** - but we don't have to!
+
+--
+
+In practical terms:  Just another dial to toggle!
+
+
+---
+## What could go wrong?
+
+What happens at the **boundaries** of the knots?
+
+--
+
+![](PiecewiseCubicFit.PNG)
+
+---
+## What could go wrong?
+
+What if we require that the functions be **equal** at the knots?
+
+--
+
+![](PiecewiseCubicFit2.png)
+
+---
+## What could go wrong?
+
+What if we require that the functions be **smooth** at the knots?
+
+--
+
+![](PiecewiseCubicCts.PNG)
+
+---
+## Natural Splines
+
+A **spline** is a **piecewise regression** that has:
+
+--
+
+* Some number of **knots**
+
+--
+
+* Some **polynomial** form of the functions
+
+e.g. "A cubic spline"
+
+--
+
+* Some **smoothness condition** on the behavior at knots.
+
+    + A degree 0 spline requires equality at knots.
+    + A degree 2 spline requires continuity (first derivative exists) at knots.
+    + A degree 3 spline requires smoothness (second derivative exists) at knots.
+    
+---
+## Splines
+
+A full spline is a piecewise regression that:
+
+--
+
+**minimizes** the prediction error, while
+
+--
+
+**also minimizing** the "roughness".
+
+---
+## Splines
+
+The **second derivative** of a function measures smoothness.
+
+--
+
+Thus, we choose the function .blue[f] to minimize:
+
+.center[.large[
+  .blue[sum of squared error] + lambda * .red[integral of second derivative]
+]]
+
+--
+
+.center[.large[
+  .blue[prediction error] + lambda * .red[roughness]
+]]
+
+--
+
+More knots = more flexibility = less prediction error
+
+More knots = more boundaries = less smoothness
+
+---
+
+## Choices to make:
+
+**Polynomial degree:** How much flexibility are you allowing in each function?
+
+--
+
+**Lambda:** How much should we penalize un-smoothness?
+
+
+---
+class: center, middle
 
 # Try it!
 
-## Open **Activity-SVM.Rmd**
+## Return to the `ins` dataset of ye olde regressione lecture.  We will again try to predict costs from age.
 
-#### Fit a support vector classifier, tuning the **cost** parameter
+## Use `step_ns()` with the `deg_free` argument to transform your data with piecewise splines.  Use the `linear_reg()` model specification.
 
-#### Fit a support vector **machine**, tuning the **cost** parameter AND the **degree** parameter.
+## Try to tune your degree choice.  Which one is best?
 
